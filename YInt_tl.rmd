@@ -1,0 +1,141 @@
+---
+title: "YInt_tl"
+author: Elaine Ye 
+output: html_document
+---
+
+```{r message=FALSE, warning=FALSE}
+library(readr)
+library(tidyverse)
+library(ggplot2)
+library(SnowballC)
+library(tidytext)
+library(stringr)
+library(tidyr)
+library(lubridate)
+library(vistime)
+library(scales)
+YInt <- read_csv("~/Documents/2021 Spring/SDS235/DC5-Data/Y*Int Social Media Data/YInt.csv")
+```
+
+```{r}
+#filter messages containing KRAK TV and sent by KRAK TV
+krak_yint <- YInt %>%
+filter(str_detect(YInt$message, pattern = "KRAK TV")) %>%
+  arrange(time)
+
+origin_krak <- krak_yint %>%
+  filter(!str_detect(message, pattern = ("re:")))
+
+account_krak <-  YInt %>%
+  filter(account == "KRAKTV")
+
+earth_alert <- YInt %>%
+  filter(account == "EarthQuakeSeers")
+
+#filter time range to have messages after the earthquake happens 
+yint_eq <- YInt %>%
+  filter(time >= ymd_hms("2020-04-08 08:36:00"))
+
+officials_yint <- yint_eq %>%
+filter(str_detect(message, pattern = "Department")) %>%
+filter(!str_detect(message, pattern = ("re:"))) %>%
+  arrange(time)
+
+city_eoc <- yint_eq %>%
+  filter(str_detect(message, pattern = "City EOC")) %>%
+filter(!str_detect(message, pattern = ("re:"))) %>%
+  arrange(time)
+
+tvhostbrad <- yint_eq %>%
+  filter(str_detect(message, pattern = "@TVHostBrad")) %>%
+filter(!str_detect(message, pattern = ("re:"))) %>%
+  arrange(time)
+
+bridge <- yint_eq %>%
+  filter(account == "DOT-StHimark")
+
+#compile reliable messages based on our assumptions
+reliable_mess <- rbind(account_krak, origin_krak, officials_yint, city_eoc, bridge, earth_alert) %>%
+  distinct(message, .keep_all = TRUE) %>%
+  arrange(time)
+
+#export the messages to a csv
+write.csv(reliable_mess, "reliable_message.csv")
+```
+
+## plot timeline 
+```{r}
+#a selection of events and a summary column has been made in *tl.csv based on personal discretion 
+tl <- read_csv("reliable_message_tl.csv")
+
+tl <- tl %>%
+  mutate(time = as.POSIXct(time, format = "%M/%d/%y %H:%M"))
+tl <- tl %>%
+  mutate(date = floor_date(time, unit = "days"))
+
+tl_data_08 <- tl %>%
+  filter(is.na(event) == FALSE) %>%
+  filter(date == "2020-04-08") %>%
+  mutate(time2 = time) %>%
+  select(time, time2, location, event) %>%
+  rename(start = time,
+         end = time2, 
+         group = location)
+
+tl_data_09 <- tl %>%
+  filter(is.na(event) == FALSE) %>%
+  filter(date >= as.Date("2020-04-09"))  %>%
+  mutate(time2 = time) %>%
+  select(time, time2, location, event) %>%
+  rename(start = time,
+         end = time2, 
+         group = location)
+
+vistime(tl_data_08, optimize_y = TRUE)
+vistime(tl_data_09, optimize_y = TRUE)
+
+```
+
+## Sentiment Analysis
+```{r}
+text_eq <- yint_eq %>%
+  mutate(hour = floor_date(time, unit="hours")) %>%
+  unnest_tokens(word, message) %>%
+  anti_join(stop_words) 
+
+
+sentiment <- text_eq %>%
+  inner_join(get_sentiments("bing")) %>%
+  count(location, index = hour, sentiment) %>%
+  pivot_wider(names_from = sentiment, values_from = n, values_fill = 0) %>% 
+  mutate(sentiment = positive - negative)
+
+
+sentiment_dt <- sentiment %>%
+  filter(location == "downtown")
+
+ggplot(sentiment, aes(index, sentiment, fill = location)) +
+  geom_col() +
+  facet_wrap(~location, scales = "free_x")  + 
+  scale_x_datetime(labels = date_format("%H:%M")) +
+  theme_minimal() +
+  theme(legend.title = element_text(size = 5),
+    legend.text = element_text(size=4))
+```
+(The graph could be expanded in rmd window but looks clustered in html; see report for reference)
+
+
+1. facet_wrap error: https://stackoverflow.com/questions/66361247/error-with-ggplot-facet-wrap-error-scale-id-must-not-be-na 
+
+2. sentiment dataset: Saif M. Mohammad and Peter Turney. (2013), ``Crowdsourcing a Word-Emotion Association Lexicon.'' Computational Intelligence, 29(3): 436-465.
+
+3. filter time: https://stackoverflow.com/questions/43880823/subset-dataframe-based-on-posixct-date-and-time-greater-than-datetime-using-dply
+
+4. sentiment analysis: https://www.tidytextmining.com/sentiment.html
+
+5. timeline visualization https://cran.r-project.org/web/packages/vistime/vignettes/vistime-vignette.html
+
+
+
+

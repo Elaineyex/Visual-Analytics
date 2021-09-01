@@ -1,0 +1,216 @@
+---
+title: "IDS_firewall_trends"
+author: Elaine Ye, Catherine Park 
+output: html_document
+---
+
+```{r message=FALSE, warning=FALSE}
+library(readr)
+library(tidyverse)
+library(patchwork)
+library(visNetwork)
+library(lubridate)
+library(patchwork)
+require(scales)
+
+firewall_0406 <- read_csv("~/Documents/2021 Spring/SDS235/DC4-data/Firewall/Firewall-04062012.csv")
+IDS_0406_updated <- read_csv("~/Documents/2021 Spring/SDS235/DC4-data/IDS/IDS-0406-updated.csv")
+IDS_0407 <- read_csv("~/Documents/2021 Spring/SDS235/DC4-data/IDS/IDS-0407.csv")
+firewall_0407 <- read_csv("~/Documents/2021 Spring/SDS235/DC4-data/Firewall/Firewall-04072012.csv")
+```
+
+
+## Firewall Overall Trend 
+```{r}
+#firewall data for 0406 
+firewall_noEm <- firewall_0406 %>%
+    filter(`Source IP` != "(empty)") %>%
+  filter(`Destination IP` != "(empty)")
+
+firewall_noEmD <- firewall_noEm %>%
+  mutate(time = dmy_hms(`Date/time`)) %>%
+  mutate(hour = floor_date(time, unit = "hours"))
+
+firewall_sysP <- firewall_noEmD %>%
+  group_by(`Syslog priority`, hour) %>%
+  summarize(n = n())
+
+firewall_sysP_noInfo <- firewall_sysP %>%
+  filter(`Syslog priority` != "Info")
+
+#make color consistent 
+firewall_sysP$`Syslog priority` <- factor(firewall_sysP$`Syslog priority`, levels = c("Critical", "Info", "Warning", "Error"))
+
+typeColors <-
+  setNames( c('chartreuse4','cyan3',  'coral', 'blueviolet')
+            , levels(firewall_sysP$`Syslog priority`))
+
+#too many instances of info type to look at trends in other types --> log y 
+pfire0406 <- ggplot(firewall_sysP, aes(x = hour, y = n, color =`Syslog priority`)) +
+  geom_line() +
+  geom_point() +
+  scale_color_manual(values = typeColors) + 
+  labs(x = "Time in Hours",
+       y = "log(Total Instances)",
+       title = "Total Firewall Activity over Time",
+       subtitle = "On April 6th",
+       color = "Syslog Priority") + 
+  scale_x_datetime(labels = date_format("%m-%d %H:%M"), date_breaks = "3 hours") +
+  scale_y_log10() +
+  theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45)) 
+```
+
+```{r}
+#firewall data for 0407
+firewall_noEm_7 <- firewall_0407 %>%
+    filter(`Source IP` != "(empty)") %>%
+  filter(`Destination IP` != "(empty)")
+
+firewall_noEmD_7 <- firewall_noEm_7 %>%
+  mutate(time = dmy_hms(`Date/time`)) %>%
+  mutate(hour = floor_date(time, unit = "hours"))
+
+firewall_sysP_7 <- firewall_noEmD_7 %>%
+  group_by(`Syslog priority`, hour) %>%
+  summarize(n = n())
+
+pfire0407 <- ggplot(firewall_sysP_7, aes(x = hour, y = n, color =`Syslog priority` , group = `Syslog priority`)) +
+  geom_line() +
+  geom_point() +
+  scale_color_manual(values = typeColors) + 
+  labs(x = "Time in Hours",
+       y = "log(Total Instances)",
+       title = "Total Firewall Activity over Time",
+       subtitle = "On April 7th",
+       color = "Syslog Priority") + 
+  scale_x_datetime(labels = date_format("%m-%d %H:%M"), date_breaks = "3 hours") +
+  scale_y_log10() +
+  theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45)) 
+
+pfire0406
+pfire0407
+```
+
+## IDS Overall Trend
+```{r message=FALSE, warning=FALSE}
+IDS_0406 <- IDS_0406_updated %>%
+  mutate(time = gsub("/","-", time)) %>%
+  mutate(time = parse_date_time(time, orders = "mdy HM")) %>%
+  mutate(hour = floor_date(time, unit = "hours"))
+
+#Separates by Classification and hour
+IDS_0406_TimeClass <- IDS_0406 %>% 
+  group_by(classification, hour) %>% 
+  summarize(total = n())
+
+IDS_0406_TimeClass$classification <- factor(IDS_0406_TimeClass$classification, levels = c("Generic Protocol Command Decode", "Misc activity", "Potential Corporate Privacy Violation", "Attempted Information Leak", "Potentially Bad Traffic"))
+
+classColors <-
+  setNames( c('coral','cyan3',  'brown', 'blueviolet', 'darkolivegreen')
+            , levels(IDS_0406_TimeClass$classification ))
+
+p46 <- ggplot(IDS_0406_TimeClass, aes(x = hour, y = total, color = classification)) +
+  geom_line() +
+  geom_point() +
+  scale_color_manual(values = classColors) + 
+   scale_x_datetime(labels = date_format("%m-%d %H:%M"), date_breaks = "3 hours") +
+  labs(x = "Time in Hours",
+       y = "Total Instances",
+       title = "Total IDS Activity over Time",
+       subtitle = "On April 6th",
+       color = "Activity Classification") +
+  theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45)) 
+
+IDS_0407_t <- IDS_0407 %>%
+  mutate(time = gsub("/","-", time)) %>%
+  mutate(time = parse_date_time(time, orders = "mdy HM")) %>%
+  mutate(hour = floor_date(time, unit = "hours"))
+
+#Separates by Classification and hour
+IDS_0407_TimeClass <- IDS_0407_t  %>% 
+  group_by(classification, hour) %>% 
+  summarize(total = n())
+
+p47 <- ggplot(IDS_0407_TimeClass, aes(x = hour, y = total, color = classification, group = classification)) +
+  geom_line() +
+  geom_point() +
+   scale_color_manual(values = classColors) +
+   scale_x_datetime(labels = date_format("%m-%d %H:%M")) +
+  labs(x = "Time in Hours",
+       y = "Total Instances",
+       title = "Total IDS Activity over Time",
+       subtitle = "On April 7th",
+       color = "Activity Classification") +
+  theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45)) 
+
+p46
+p47
+```
+
+## Network Graph for Firewall 0406 without Info 
+```{r}
+firewall_noInfo <- firewall_noEmD %>%
+  filter(`Syslog priority` != "Info") 
+
+sources <- firewall_noInfo %>%
+  distinct(`Source IP`) %>%
+  rename(label = `Source IP`)
+
+destination <- firewall_noInfo %>%
+  distinct(`Destination IP`) %>%
+  rename(label = `Destination IP`)
+
+nodes <- full_join(sources, destination, by = "label")
+
+nodes <- nodes %>% 
+  rowid_to_column("id")
+
+per_route <- firewall_noInfo %>%
+  group_by(`Source IP`, `Destination IP`) %>%
+  summarize(weight = n()) %>%
+  ungroup()
+
+edges <- per_route %>% 
+  left_join(nodes, by = c("Source IP" = "label")) %>% 
+  rename(from = id)
+
+
+edges <- edges %>% 
+  left_join(nodes, by = c("Destination IP" = "label")) %>% 
+  rename(to = id)
+
+edges_sub <- edges %>%
+  select(from, to, weight) 
+
+vis.nodes <- nodes
+vis.links <- edges_sub
+vis.nodes$title <- nodes$label
+vis.links$width <- 1+edges_sub$weight/8
+
+visNetwork(vis.nodes, vis.links, main="Network of Firewall Activity on April 6th", submain="without Syslog Priority of Info") %>% 
+  visIgraphLayout(layout = "layout_with_fr") %>% 
+  visEdges(arrows = "middle")
+```
+
+
+
+Reference 
+
+Setting up dataframe for network graph: https://www.jessesadler.com/post/network-analysis-with-r/
+
+Convert dates: 
+https://stackoverflow.com/questions/4310326/convert-character-to-class-date
+
+Interactive graph: 
+https://kateto.net/network-visualization
+
+Control color: 
+https://stackoverflow.com/questions/42891307/how-can-i-maintain-a-color-scheme-across-ggplots-while-dropping-unused-levels-i
+
+Color: 
+https://www.r-graph-gallery.com/ggplot2-color.html
+
